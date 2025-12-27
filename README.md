@@ -16,6 +16,7 @@
 - [Introduction](#introduction)
 - [Why LangExtract?](#why-langextract)
 - [Quick Start](#quick-start)
+- [Release Notes](#release-notes)
 - [Installation](#installation)
 - [API Key Setup for Cloud Models](#api-key-setup-for-cloud-models)
 - [Adding Custom Model Providers](#adding-custom-model-providers)
@@ -157,6 +158,14 @@ This approach can extract hundreds of entities from full novels while maintainin
 Save costs on large-scale tasks by enabling Vertex AI Batch API: `language_model_params={"vertexai": True, "batch": {"enabled": True}}`.
 
 See an example of the Vertex AI Batch API usage in [this example](docs/examples/batch_api_example.md).
+
+## Release Notes
+
+### v1.2.0 (2025-12-27)
+- **Enhanced Chinese/CJK Visualization Support**: Improved alignment accuracy for Chinese and other CJK languages.
+  - **Issue**: The default `RegexTokenizer` often merges consecutive Chinese characters into large tokens (e.g., treating "毫克口服布洛芬" as a single token). This prevented the `WordAligner` from finding exact token-level matches for sub-strings like "口服" or "布洛芬", resulting in missing character intervals and visualization highlights.
+  - **Fix**: Implemented a **substring fallback alignment** in `langextract/resolver.py`. For entities that fail token-based exact or fuzzy alignment, the system now attempts to locate the extraction text directly within the source text while ensuring no overlap with already aligned intervals.
+  - **New Alignment Status**: Introduced `match_substring` in `langextract/core/data.py` to specifically track and represent these fallback matches.
 
 ## Installation
 
