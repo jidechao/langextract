@@ -30,7 +30,7 @@ model_config = ModelConfig(
         "temperature": 0.1,
         "max_tokens": 2048,
         "base_url": "https://api.deepseek.com",
-        "api_key": "sk-b0e9aed3e82d445c89bc3ac18f5a8d98"
+        "api_key": ""
     }
 )
 
