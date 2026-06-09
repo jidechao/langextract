@@ -22,6 +22,7 @@ from langextract import factory
 from langextract import schema
 from langextract.core import base_model
 from langextract.core import data
+from langextract.providers import schemas
 
 
 class FactorySchemaIntegrationTest(absltest.TestCase):
@@ -46,7 +47,7 @@ class FactorySchemaIntegrationTest(absltest.TestCase):
   def test_gemini_with_schema_returns_false_fence(self):
     """Test that Gemini with schema returns fence_output=False."""
     config = factory.ModelConfig(
-        model_id="gemini-2.5-flash", provider_kwargs={"api_key": "test_key"}
+        model_id="gemini-3.5-flash", provider_kwargs={"api_key": "test_key"}
     )
 
     with mock.patch(
@@ -89,10 +90,43 @@ class FactorySchemaIntegrationTest(absltest.TestCase):
 
       self.assertFalse(model.requires_fence_output)
 
+  def test_openai_with_schema_returns_false_fence(self):
+    """OpenAI schema constraints use raw JSON by default."""
+    config = factory.ModelConfig(
+        model_id="gpt-4o-mini", provider_kwargs={"api_key": "test_key"}
+    )
+
+    with mock.patch("openai.OpenAI", autospec=True):
+      model = factory._create_model_with_schema(
+          config=config,
+          examples=self.examples,
+          use_schema_constraints=True,
+          fence_output=None,
+      )
+
+      self.assertIsInstance(model.schema, schemas.openai.OpenAISchema)
+      self.assertIs(model.requires_fence_output, False)
+
+  def test_openai_explicit_fence_output_respected(self):
+    """Explicit OpenAI fence_output overrides schema defaults."""
+    config = factory.ModelConfig(
+        model_id="gpt-4o-mini", provider_kwargs={"api_key": "test_key"}
+    )
+
+    with mock.patch("openai.OpenAI", autospec=True):
+      model = factory._create_model_with_schema(
+          config=config,
+          examples=self.examples,
+          use_schema_constraints=True,
+          fence_output=True,
+      )
+
+      self.assertIs(model.requires_fence_output, True)
+
   def test_explicit_fence_output_respected(self):
     """Test that explicit fence_output is not overridden."""
     config = factory.ModelConfig(
-        model_id="gemini-2.5-flash", provider_kwargs={"api_key": "test_key"}
+        model_id="gemini-3.5-flash", provider_kwargs={"api_key": "test_key"}
     )
 
     with mock.patch(
@@ -134,7 +168,7 @@ class FactorySchemaIntegrationTest(absltest.TestCase):
   def test_schema_disabled_returns_true_fence(self):
     """Test that disabling schema constraints returns fence_output=True."""
     config = factory.ModelConfig(
-        model_id="gemini-2.5-flash", provider_kwargs={"api_key": "test_key"}
+        model_id="gemini-3.5-flash", provider_kwargs={"api_key": "test_key"}
     )
 
     with mock.patch(
@@ -179,7 +213,7 @@ class FactorySchemaIntegrationTest(absltest.TestCase):
   def test_no_examples_no_schema(self):
     """Test that no examples means no schema is created."""
     config = factory.ModelConfig(
-        model_id="gemini-2.5-flash", provider_kwargs={"api_key": "test_key"}
+        model_id="gemini-3.5-flash", provider_kwargs={"api_key": "test_key"}
     )
 
     with mock.patch(

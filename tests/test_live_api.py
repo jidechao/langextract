@@ -39,16 +39,20 @@ from langextract import data
 import langextract as lx
 from langextract.core import tokenizer as tokenizer_lib
 from langextract.providers import gemini_batch as gb
+from langextract.providers import openai_batch
 
 dotenv.load_dotenv(override=True)
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_OPENAI_MODEL = "gpt-4o"
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get(
     "LANGEXTRACT_API_KEY"
 )
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+RUN_OPENAI_BATCH_LIVE_TESTS = (
+    os.environ.get("LANGEXTRACT_RUN_OPENAI_BATCH_LIVE_TESTS") == "1"
+)
 
 VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT") or os.environ.get(
     "GOOGLE_CLOUD_PROJECT"
@@ -77,6 +81,13 @@ skip_if_no_gemini = pytest.mark.skipif(
 skip_if_no_openai = pytest.mark.skipif(
     not OPENAI_API_KEY,
     reason="OpenAI API key not available (set OPENAI_API_KEY)",
+)
+skip_if_openai_batch_live_disabled = pytest.mark.skipif(
+    not RUN_OPENAI_BATCH_LIVE_TESTS,
+    reason=(
+        "OpenAI Batch API live test not enabled "
+        "(set LANGEXTRACT_RUN_OPENAI_BATCH_LIVE_TESTS=1)"
+    ),
 )
 skip_if_no_vertex = pytest.mark.skipif(
     not has_vertex_ai_credentials(),
@@ -762,8 +773,6 @@ class TestLiveAPIGemini(unittest.TestCase):
 
     self.assertLess(duration2, 10.0, "Second run took too long for cache hit")
 
-    self.assertLess(duration2, 10.0, "Second run took too long for cache hit")
-
     print("\nVerifying GCS cache content...")
     bucket_name = gb._get_bucket_name(VERTEX_PROJECT, VERTEX_LOCATION)
     print(f"Checking bucket: {bucket_name}")
@@ -849,6 +858,64 @@ class TestLiveAPIOpenAI(unittest.TestCase):
   """Tests using real OpenAI API."""
 
   @skip_if_no_openai
+  @skip_if_openai_batch_live_disabled
+  @live_api
+  @retry_on_transient_errors(max_retries=1)
+  @mock.patch.object(
+      openai_batch, "infer_batch", wraps=openai_batch.infer_batch, autospec=True
+  )
+  def test_batch_extraction_uses_openai_batch_api(self, mock_infer_batch):
+    """OpenAI batch mode runs a real Batch API extraction."""
+    prompt = textwrap.dedent("""\
+        Extract medication information including medication name, dosage, route,
+        frequency, and duration in the order they appear in the text.""")
+    examples = get_basic_medication_examples()
+    documents = [
+        lx.data.Document(
+            document_id="openai_batch_doc1",
+            text="Patient took 400 mg PO Ibuprofen q4h for two days.",
+        ),
+        lx.data.Document(
+            document_id="openai_batch_doc2",
+            text="Administered 2 mg IV Morphine once for acute pain.",
+        ),
+    ]
+    expected_meds = ["Ibuprofen", "Morphine"]
+    language_model_params = {
+        **OPENAI_MODEL_PARAMS,
+        "max_output_tokens": 512,
+        "batch": {
+            "enabled": True,
+            "threshold": 1,
+            "poll_interval": 5,
+            "timeout": 900,
+        },
+    }
+
+    batch_result = lx.extract(
+        text_or_documents=documents,
+        prompt_description=prompt,
+        examples=examples,
+        model_id="gpt-4o-mini",
+        api_key=OPENAI_API_KEY,
+        use_schema_constraints=False,
+        language_model_params=language_model_params,
+    )
+
+    mock_infer_batch.assert_called()
+    call_args = mock_infer_batch.call_args
+    self.assertTrue(call_args.kwargs["cfg"].enabled)
+    self.assertEqual(call_args.kwargs["cfg"].threshold, 1)
+
+    self.assertIsInstance(batch_result, list)
+    self.assertEqual(len(batch_result), len(documents))
+    for result, expected_med in zip(batch_result, expected_meds):
+      self.assertIsInstance(result, lx.data.AnnotatedDocument)
+      medication_texts = extract_by_class(result, _CLASS_MEDICATION)
+      self.assertIn(expected_med, medication_texts)
+      assert_valid_char_intervals(self, result)
+
+  @skip_if_no_openai
   @live_api
   @retry_on_transient_errors(max_retries=2)
   def test_medication_extraction(self):
@@ -911,6 +978,86 @@ class TestLiveAPIOpenAI(unittest.TestCase):
         ),
         f"No PO/oral route found in: {route_texts}",
     )
+
+  @skip_if_no_openai
+  @live_api
+  @retry_on_transient_errors(max_retries=2)
+  def test_medication_extraction_with_schema_constraints(self):
+    """Strict OpenAI outputs enforce the example-derived extraction shape."""
+    prompt = textwrap.dedent("""\
+        Extract conditions and medications in the order they appear in the text.
+        Use exact text for extractions. For condition attributes, include status
+        and symptoms as a list when symptoms are available.""")
+    examples = [
+        lx.data.ExampleData(
+            text="Patient has diabetes with fatigue and takes Metformin.",
+            extractions=[
+                lx.data.Extraction(
+                    extraction_class=_CLASS_CONDITION,
+                    extraction_text="diabetes",
+                    attributes={
+                        "status": "present",
+                        "symptoms": ["fatigue"],
+                    },
+                ),
+                lx.data.Extraction(
+                    extraction_class=_CLASS_MEDICATION,
+                    extraction_text="Metformin",
+                    attributes={"status": "current"},
+                ),
+            ],
+        )
+    ]
+    input_text = (
+        "Patient has headache with fatigue and chills and took 400 mg PO "
+        "Ibuprofen."
+    )
+
+    result = lx.extract(
+        text_or_documents=input_text,
+        prompt_description=prompt,
+        examples=examples,
+        model_id="gpt-4o-mini",
+        api_key=OPENAI_API_KEY,
+        use_schema_constraints=True,
+        fence_output=False,
+        language_model_params={
+            **OPENAI_MODEL_PARAMS,
+            "max_output_tokens": 512,
+        },
+    )
+
+    self.assertIsInstance(result, lx.data.AnnotatedDocument)
+    self.assertGreater(len(result.extractions), 0)
+    allowed_classes = {_CLASS_CONDITION, _CLASS_MEDICATION}
+    extraction_classes = {
+        extraction.extraction_class for extraction in result.extractions
+    }
+    self.assertSetEqual(extraction_classes, allowed_classes)
+    allowed_attribute_keys = {
+        _CLASS_CONDITION: {"status", "symptoms"},
+        _CLASS_MEDICATION: {"status"},
+    }
+    for extraction in result.extractions:
+      if isinstance(extraction.attributes, dict):
+        self.assertLessEqual(
+            set(extraction.attributes),
+            allowed_attribute_keys[extraction.extraction_class],
+        )
+    condition_extractions = [
+        extraction
+        for extraction in result.extractions
+        if extraction.extraction_class == _CLASS_CONDITION
+    ]
+    self.assertTrue(
+        any(
+            isinstance(extraction.attributes, dict)
+            and isinstance(extraction.attributes.get("symptoms"), list)
+            for extraction in condition_extractions
+        ),
+        f"Expected list-valued symptoms attribute. Got: {result.extractions}",
+    )
+    assert_valid_char_intervals(self, result)
 
   @skip_if_no_openai
   @live_api
@@ -1007,3 +1154,31 @@ class TestLiveAPIOpenAI(unittest.TestCase):
       assert any(
           c in extraction_classes for c in [_CLASS_DOSAGE, "dose"]
       ), f"{med_name} group missing dosage"
+
+  @skip_if_no_openai
+  @live_api
+  @retry_on_transient_errors(max_retries=2)
+  def test_reasoning_effort_passthrough(self):
+    """reasoning_effort is accepted by reasoning models."""
+    examples = get_basic_medication_examples()
+    input_text = "Patient took 400 mg PO Ibuprofen q4h for two days."
+
+    config = lx.factory.ModelConfig(
+        model_id="o4-mini",
+        provider="OpenAILanguageModel",
+        provider_kwargs={
+            "api_key": OPENAI_API_KEY,
+            "reasoning_effort": "low",
+        },
+    )
+
+    result = lx.extract(
+        text_or_documents=input_text,
+        prompt_description="Extract medications.",
+        examples=examples,
+        config=config,
+        use_schema_constraints=False,
+    )
+
+    assert result is not None
+    self.assertIsInstance(result, lx.data.AnnotatedDocument)

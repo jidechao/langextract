@@ -14,6 +14,8 @@
 
 """Tests for Gemini Batch API functionality."""
 
+import dataclasses
+import enum
 import io
 import json
 from unittest import mock
@@ -98,7 +100,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.batches.get.return_value = create_mock_batch_job()
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="test-project",
         location=gb._DEFAULT_LOCATION,
@@ -133,7 +135,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.models.generate_content.return_value = mock_response
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -158,7 +160,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.models.generate_content.return_value = mock_response
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -201,7 +203,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     }
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -226,7 +228,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
       # Verify _submit_file was called with project and location parameters.
       mock_submit.assert_called_with(
           mock_client,
-          "gemini-2.5-flash",
+          "gemini-3.5-flash",
           [{
               "contents": [
                   {"role": "user", "parts": [{"text": "test prompt"}]}
@@ -253,7 +255,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.batches.create.side_effect = Exception("Batch API error")
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -293,7 +295,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.batches.get.return_value = job
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -375,7 +377,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.batches.get.side_effect = [job0, job1, job2]
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -413,7 +415,7 @@ class TestGeminiBatchAPI(absltest.TestCase):
     mock_client.batches.get.return_value = job
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project="p",
         location="l",
@@ -641,7 +643,7 @@ class GCSBatchCachingTest(absltest.TestCase):
     test_location = "us-central1"
 
     model = gemini.GeminiLanguageModel(
-        model_id="gemini-2.5-flash",
+        model_id="gemini-3.5-flash",
         vertexai=True,
         project=test_project,
         location=test_location,
@@ -678,6 +680,33 @@ class GCSBatchCachingTest(absltest.TestCase):
     data1 = {"a": 1, "b": 2}
     data2 = {"b": 2, "a": 1}
     self.assertEqual(cache._compute_hash(data1), cache._compute_hash(data2))
+
+  def test_cache_hashing_serializes_enum_and_dataclass(self):
+    """Test that complex provider settings can be hashed deterministically."""
+
+    class _SafetyLevel(enum.Enum):
+      LOW = "low"
+
+    @dataclasses.dataclass(frozen=True)
+    class _SafetySetting:
+      level: _SafetyLevel
+      threshold: int
+
+    cache = gb.GCSBatchCache("b")
+    with_complex_types = {
+        "prompt": "p1",
+        "gen_config": {
+            "safety": _SafetySetting(level=_SafetyLevel.LOW, threshold=1)
+        },
+    }
+    normalized = {
+        "gen_config": {"safety": {"level": "low", "threshold": 1}},
+        "prompt": "p1",
+    }
+
+    self.assertEqual(
+        cache._compute_hash(with_complex_types), cache._compute_hash(normalized)
+    )
 
 
 if __name__ == "__main__":

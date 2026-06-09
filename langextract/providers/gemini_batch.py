@@ -54,6 +54,17 @@ _CACHE_PREFIX = "cache"
 _UNSET = object()
 
 
+def _json_default(obj: Any) -> Any:
+  """Serialize non-JSON-native objects used in provider configurations."""
+  if dataclasses.is_dataclass(obj):
+    return dataclasses.asdict(obj)
+  if isinstance(obj, enum.Enum):
+    return obj.value
+  raise TypeError(
+      f"Object of type {type(obj).__name__} is not JSON serializable"
+  )
+
+
 @dataclasses.dataclass(slots=True, frozen=True)
 class BatchConfig:
   """Define and validate Gemini Batch API configuration.
@@ -312,7 +323,7 @@ def _submit_file(
   Args:
     client: google.genai.Client instance configured for Vertex AI
         (must have client.vertexai=True).
-    model_id: Model identifier (e.g., "gemini-2.5-flash").
+    model_id: Model identifier (e.g., "gemini-3.5-flash").
     requests: List of request dictionaries with embedded configuration.
         Each request contains contents and optional generationConfig
         (including schema and generation parameters).
@@ -386,7 +397,12 @@ class GCSBatchCache:
 
   def _compute_hash(self, key_data: dict) -> str:
     """Compute SHA256 hash of the canonicalized request data."""
-    canonical_json = json.dumps(key_data, sort_keys=True, ensure_ascii=False)
+    canonical_json = json.dumps(
+        key_data,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=_json_default,
+    )
     return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
   def _get_single(self, key_hash: str) -> str | None:
@@ -442,13 +458,6 @@ class GCSBatchCache:
         logging.warning(
             "Cache write error for %s: %s", key_hash, e, exc_info=True
         )
-
-    def _json_default(obj):
-      if dataclasses.is_dataclass(obj):
-        return dataclasses.asdict(obj)
-      if isinstance(obj, enum.Enum):
-        return obj.value
-      raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
       for key_data, text in items:
@@ -708,7 +717,7 @@ def infer_batch(
   Args:
     client: google.genai.Client instance configured for Vertex AI
         (must have client.vertexai=True).
-    model_id: Model identifier (e.g., "gemini-2.5-flash").
+    model_id: Model identifier (e.g., "gemini-3.5-flash").
     prompts: Sequence of prompts to process in batch.
     schema_dict: Optional JSON schema for structured output. When provided,
         enables JSON mode with the specified schema constraints.

@@ -37,7 +37,7 @@ class ModelConfig:
   """Configuration for instantiating a language model provider.
 
   Attributes:
-    model_id: The model identifier (e.g., "gemini-2.5-flash", "gpt-4o").
+    model_id: The model identifier (e.g., "gemini-3.5-flash", "gpt-4o").
     provider: Optional explicit provider name or class name. Use this to
       disambiguate when multiple providers support the same model_id.
     provider_kwargs: Optional provider-specific keyword arguments.
@@ -156,8 +156,6 @@ def create_model(
 
   model_id = config.model_id
 
-  model_id = config.model_id
-
   kwargs = _kwargs_with_environment_defaults(
       model_id or config.provider or "", config.provider_kwargs
   )
@@ -184,7 +182,7 @@ def create_model_from_id(
   """Convenience function to create a model.
 
   Args:
-    model_id: The model identifier (e.g., "gemini-2.5-flash").
+    model_id: The model identifier (e.g., "gemini-3.5-flash").
     provider: Optional explicit provider name to disambiguate.
     **provider_kwargs: Optional provider-specific keyword arguments.
 
@@ -220,11 +218,13 @@ def _create_model_with_schema(
     A model instance with fence_output configured appropriately.
   """
 
+  # Must run before resolution regardless of config path.
+  providers.load_builtins_once()
+  providers.load_plugins_once()
+
   if config.provider:
     provider_class = router.resolve_provider(config.provider)
   else:
-    providers.load_builtins_once()
-    providers.load_plugins_once()
     provider_class = router.resolve(config.model_id)
 
   schema_instance = None
