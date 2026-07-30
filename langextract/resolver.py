@@ -1058,6 +1058,13 @@ class WordAligner:
       still_unaligned.append(extraction)
 
     for extraction in still_unaligned:
+      # Only apply the CJK substring fallback to CJK extractions. For
+      # whitespace-delimited scripts (Latin/Cyrillic/etc.) the tokenizer
+      # boundaries are reliable, and a raw substring match can corrupt
+      # alignment by landing inside a longer token (e.g. "Napro" inside
+      # "Naprosyn") or by overriding a deliberate difflib non-match.
+      if not _contains_cjk(extraction.extraction_text):
+        continue
       span = _find_non_overlapping_span(extraction.extraction_text)
       if span is None:
         continue
@@ -1124,6 +1131,20 @@ def _normalize_token(token: str) -> str:
   if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
     token = token[:-1]
   return token
+
+
+def _contains_cjk(text: str) -> bool:
+  """Returns True if text contains any CJK character (Han, Kana, Hangul)."""
+  for ch in text:
+    cp = ord(ch)
+    if (
+        0x4E00 <= cp <= 0x9FFF  # CJK Unified Ideographs (Han)
+        or 0x3040 <= cp <= 0x30FF  # Hiragana + Katakana
+        or 0xAC00 <= cp <= 0xD7AF  # Hangul Syllables
+        or 0x3400 <= cp <= 0x4DBF  # CJK Extension A
+    ):
+      return True
+  return False
 
 
 _NO_MATCH = LcsSpan(matches=0, start=-1, end=-1)

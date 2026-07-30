@@ -574,6 +574,7 @@ class AlignEntitiesTest(parameterized.TestCase):
       "Patient with arthritis, fever, and inflammation is prescribed"
       " Naprosyn, prednisone, and ibuprofen."
   )
+  _SOURCE_TEXT_CJK_MEDS = "患者被处方阿司匹林和对乙酰氨基酚进行治疗。"
   _SOURCE_TEXT_MULTI_WORD_EXTRACTIONS = (
       "Pt was prescribed Naprosyn as needed for pain and prednisone for"
       " one month."
@@ -940,28 +941,62 @@ class AlignEntitiesTest(parameterized.TestCase):
               ],
           ],
       ),
-      (
-          "test_extraction_with_substring_of_another_not_matched",
-          [[
-              data.Extraction(
-                  extraction_class="medication", extraction_text="Napro"
-              )
-          ]],
-          _SOURCE_TEXT_TWO_MEDS,
-          [[
-              data.Extraction(
-                  extraction_class="medication",
-                  extraction_text="Napro",
-                  char_interval=None,
-              )
-          ]],
-      ),
-      (
-          "test_empty_extractions_list",
-          [],
-          _SOURCE_TEXT_TWO_MEDS,
-          [],
-      ),
+     (
+         "test_extraction_with_substring_of_another_not_matched",
+         [[
+             data.Extraction(
+                 extraction_class="medication", extraction_text="Napro"
+             )
+         ]],
+         _SOURCE_TEXT_TWO_MEDS,
+         [[
+             data.Extraction(
+                 extraction_class="medication",
+                 extraction_text="Napro",
+                 char_interval=None,
+             )
+         ]],
+     ),
+     (
+         "test_cjk_substring_fallback_alignment",
+         [[
+             data.Extraction(
+                 extraction_class="medication", extraction_text="阿司匹林"
+             )
+         ]],
+         _SOURCE_TEXT_CJK_MEDS,
+         [[
+             data.Extraction(
+                 extraction_class="medication",
+                extraction_text="阿司匹林",
+                token_interval=None,
+                char_interval=data.CharInterval(start_pos=5, end_pos=9),
+                alignment_status=data.AlignmentStatus.MATCH_SUBSTRING,
+             )
+         ]],
+     ),
+     (
+         "test_latin_substring_fallback_not_applied",
+         [[
+             data.Extraction(
+                 extraction_class="medication", extraction_text="Napro"
+             )
+         ]],
+         _SOURCE_TEXT_TWO_MEDS,
+         [[
+             data.Extraction(
+                 extraction_class="medication",
+                 extraction_text="Napro",
+                 char_interval=None,
+             )
+         ]],
+     ),
+     (
+         "test_empty_extractions_list",
+         [],
+         _SOURCE_TEXT_TWO_MEDS,
+         [],
+     ),
       (
           "test_extractions_with_similar_words",
           [
