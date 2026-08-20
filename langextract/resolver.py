@@ -1074,7 +1074,12 @@ class WordAligner:
           and e.char_interval.start_pos is not None
           and e.char_interval.end_pos is not None
       ):
-        occupied.append((e.char_interval.start_pos - char_offset, e.char_interval.end_pos - char_offset))
+        occupied.append(
+            (
+                e.char_interval.start_pos - char_offset,
+                e.char_interval.end_pos - char_offset,
+            )
+        )
 
     def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
       return a[0] < b[1] and b[0] < a[1]
@@ -1092,7 +1097,61 @@ class WordAligner:
           return span
         start = idx + 1
 
+    def _find_span_containing(
+        needle: str, current: tuple[int, int]
+    ) -> tuple[int, int] | None:
+      if not needle:
+        return None
+      start = 0
+      while True:
+        idx = source_text.find(needle, start)
+        if idx == -1:
+          return None
+        span = (idx, idx + len(needle))
+        if span[0] <= current[0] and current[1] <= span[1]:
+          return span
+        start = idx + 1
+
     substring_aligned = 0
+
+    # A mixed-script CJK value such as "400毫克" can tokenize as "400" and
+    # "毫克" while the source groups "毫克" with adjacent CJK characters. The
+    # token matcher may then accept only "400" as MATCH_LESSER. If the full
+    # extraction is present verbatim around that partial span, replace the
+    # token-derived span with the exact character span.
+    for extraction in aligned_extractions:
+      if (
+          extraction.alignment_status is not data.AlignmentStatus.MATCH_LESSER
+          or not _contains_cjk(extraction.extraction_text)
+          or extraction.char_interval is None
+          or extraction.char_interval.start_pos is None
+          or extraction.char_interval.end_pos is None
+      ):
+        continue
+      current = (
+          extraction.char_interval.start_pos - char_offset,
+          extraction.char_interval.end_pos - char_offset,
+      )
+      expanded = _find_span_containing(
+          extraction.extraction_text, current
+      )
+      if expanded is None or expanded == current:
+        continue
+      # Remove the partial span before checking overlaps, then restore it if
+      # another extraction already occupies any character added by expansion.
+      occupied.remove(current)
+      if any(_overlaps(expanded, used) for used in occupied):
+        occupied.append(current)
+        continue
+      extraction.char_interval = data.CharInterval(
+          start_pos=char_offset + expanded[0],
+          end_pos=char_offset + expanded[1],
+      )
+      extraction.token_interval = None
+      extraction.alignment_status = data.AlignmentStatus.MATCH_SUBSTRING
+      occupied.append(expanded)
+      substring_aligned += 1
+
     still_unaligned = []
     for extraction, _ in index_to_extraction_group.values():
       if extraction in aligned_extractions:

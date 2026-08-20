@@ -575,6 +575,9 @@ class AlignEntitiesTest(parameterized.TestCase):
       " Naprosyn, prednisone, and ibuprofen."
   )
   _SOURCE_TEXT_CJK_MEDS = "患者被处方阿司匹林和对乙酰氨基酚进行治疗。"
+  _SOURCE_TEXT_CJK_MIXED_MEDS = (
+      "患者服用了400毫克口服布洛芬，每4小时一次，持续两天。"
+  )
   _SOURCE_TEXT_MULTI_WORD_EXTRACTIONS = (
       "Pt was prescribed Naprosyn as needed for pain and prednisone for"
       " one month."
@@ -972,6 +975,24 @@ class AlignEntitiesTest(parameterized.TestCase):
                 token_interval=None,
                 char_interval=data.CharInterval(start_pos=5, end_pos=9),
                 alignment_status=data.AlignmentStatus.MATCH_SUBSTRING,
+             )
+         ]],
+     ),
+     (
+         "test_cjk_mixed_number_unit_expands_lesser_match_to_full_substring",
+         [[
+             data.Extraction(
+                 extraction_class="dosage", extraction_text="400毫克"
+             )
+         ]],
+         _SOURCE_TEXT_CJK_MIXED_MEDS,
+         [[
+             data.Extraction(
+                 extraction_class="dosage",
+                 extraction_text="400毫克",
+                 token_interval=None,
+                 char_interval=data.CharInterval(start_pos=5, end_pos=10),
+                 alignment_status=data.AlignmentStatus.MATCH_SUBSTRING,
              )
          ]],
      ),

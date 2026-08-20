@@ -1,3 +1,5 @@
+import os
+
 import langextract as lx
 from langextract.factory import ModelConfig
 import textwrap
@@ -30,7 +32,7 @@ model_config = ModelConfig(
         "temperature": 0.1,
         "max_tokens": 2048,
         "base_url": "https://api.deepseek.com",
-        "api_key": ""
+        "api_key": os.getenv("DEEPSEEK_API_KEY")
     }
 )
 
